@@ -5,6 +5,10 @@ import os
 # Configuração da página
 st.set_page_config(page_title="Simulador CAECO", page_icon="👕", layout="centered")
 
+# Função rápida para formatar os valores para o padrão do Brasil (R$ 1.000,00)
+def formatar_moeda(valor):
+    return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
 # Inicializar o carrinho na sessão do Streamlit
 if 'carrinho' not in st.session_state:
     st.session_state.carrinho = []
@@ -41,12 +45,10 @@ col_img, col_opcoes = st.columns([1, 1.5])
 with col_opcoes:
     produto_selecionado = st.selectbox("Qual camisa?", produtos)
     
-    # NOVA LÓGICA: Verifica se é a Oversized para mudar as opções de modelo
+    # LÓGICA: Verifica se é a Oversized para mudar as opções de modelo
     if produto_selecionado == "04 - Economia Oversized":
-        # Deixa apenas a opção "Oversized" e desabilita a caixinha
         estilo_selecionado = st.selectbox("Modelo", ["Oversized"], disabled=True)
     else:
-        # Mostra as opções normais para as outras camisas
         estilo_selecionado = st.selectbox("Modelo", ["Normal", "Babylook"])
         
     tamanho_selecionado = st.selectbox("Tamanho", ["P", "M", "G", "GG"])
@@ -107,15 +109,26 @@ if len(st.session_state.carrinho) > 0:
     valor_desconto = subtotal * desconto
     total = subtotal - valor_desconto
 
-    # Exibição dos Valores
+    # --- DESTAQUE FINANCEIRO ---
     st.write("---")
     st.subheader("💰 Resumo Financeiro")
-    colA, colB, colC = st.columns(3)
-    colA.metric(label="Subtotal", value=f"R$ {subtotal:,.2f}".replace('.', ','))
-    colB.metric(label=f"Desconto ({desconto*100:g}%)", value=f"- R$ {valor_desconto:,.2f}".replace('.', ','))
-    colC.metric(label="Total a Pagar", value=f"R$ {total:,.2f}".replace('.', ','))
+    
+    colA, colB = st.columns(2)
+    colA.metric(label="Subtotal", value=formatar_moeda(subtotal))
+    colB.metric(label=f"Desconto ({desconto*100:g}%)", value=f"- {formatar_moeda(valor_desconto)}")
 
-    st.info("⚠️ **Atenção:** Realize a transferência exatamente no valor do 'Total a Pagar' acima.")
+    # CAIXA GIGANTE PARA O TOTAL A PAGAR USANDO HTML/CSS
+    st.markdown(
+        f"""
+        <div style="background-color: #198754; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);">
+            <p style="color: white; margin: 0; font-size: 18px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Valor exato para o PIX</p>
+            <p style="color: white; margin: 0; font-size: 48px; font-weight: 900;">{formatar_moeda(total)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.info("⚠️ **Atenção:** Realize a transferência exatamente no valor em destaque na caixa verde acima.")
 
     st.divider()
 
@@ -127,7 +140,7 @@ if len(st.session_state.carrinho) > 0:
     texto_resumo = "RESUMO DO PEDIDO:\n"
     for i, item in enumerate(st.session_state.carrinho):
         texto_resumo += f"{i+1}. {item['Camisa']} | {item['Modelo']} | Tam: {item['Tamanho']}\n"
-    texto_resumo += f"\nTOTAL PAGO: R$ {total:,.2f}".replace('.', ',')
+    texto_resumo += f"\nTOTAL PAGO: {formatar_moeda(total)}"
 
     st.code(texto_resumo, language='text')
     
