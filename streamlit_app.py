@@ -14,13 +14,15 @@ st.set_page_config(page_title="Loja CAECO", page_icon="👕", layout="wide")
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
-PRECO_BASE = 60.00
-produtos = [
-    "01 - Economia Padrão",
-    "02 - Ceteris Paribus",
-    "03 - Economia Frente e Verso",
-    "04 - Economia Oversized"
-]
+# NOVO: Dicionário de Preços Específicos
+precos_camisas = {
+    "01 - Economia Padrão": 59.99,
+    "02 - Ceteris Paribus": 59.99,
+    "03 - Economia Frente e Verso": 69.99,
+    "04 - Economia Oversized": 79.99
+}
+
+produtos = list(precos_camisas.keys())
 
 imagens_camisas = {
     "01 - Economia Padrão": "Gemini_Generated_Image_sx64lasx64lasx64.png", 
@@ -59,7 +61,6 @@ def salvar_pedido_csv(email, nome, carrinho, total, pagamento):
 # FLUXO DE LOGIN (GOOGLE OAUTH 2.0)
 # ==========================================
 def verificar_login_google():
-    # Se a URL voltou do Google com o código de autorização, vamos processar!
     if "code" in st.query_params:
         codigo_auth = st.query_params["code"]
         st.spinner("Validando acesso com o Google...")
@@ -77,7 +78,6 @@ def verificar_login_google():
         
         if resposta_token.status_code == 200:
             access_token = resposta_token.json().get("access_token")
-            # Pegando as informações do usuário
             user_info_url = "https://www.googleapis.com/oauth2/v1/userinfo"
             user_res = requests.get(user_info_url, headers={"Authorization": f"Bearer {access_token}"})
             
@@ -88,7 +88,6 @@ def verificar_login_google():
                     "email": user_info.get("email"),
                     "foto": user_info.get("picture")
                 }
-                # Limpa a URL para ficar bonita novamente
                 st.query_params.clear()
                 st.rerun()
             else:
@@ -101,8 +100,16 @@ def verificar_login_google():
 # ==========================================
 
 def page_loja():
+    # NOVO: Letreiro giratório preto com letras chamativas
+    st.markdown("""
+        <div style="background-color: #000000; color: #39ff14; padding: 10px; border-radius: 5px; margin-bottom: 20px;">
+            <marquee behavior="scroll" direction="left" scrollamount="10" style="font-size: 22px; font-weight: bold; text-transform: uppercase;">
+                🚨 Promoção Especial: Leve 2 ou mais camisetas e ganhe até 10% de desconto no PIX! Aproveite! 🚨
+            </marquee>
+        </div>
+    """, unsafe_allow_html=True)
+
     st.title("🛍️ Coleção CAECO 2026.3")
-    st.success("🚨 **PROMOÇÃO:** Leve 2 ou mais camisetas e ganhe até **10% de desconto** no PIX!")
     st.write("---")
     
     col_img, col_detalhes = st.columns([1.2, 1])
@@ -119,14 +126,21 @@ def page_loja():
         tamanho_selecionado = st.selectbox("Tamanho", ["P", "M", "G", "GG"])
         
         st.info("ℹ️ **Material:** 100% algodão penteado, gramatura ideal e zero transparência.")
-        st.write(f"### Por apenas {formatar_moeda(PRECO_BASE)}")
+        
+        # NOVO: Busca o preço exato da camisa selecionada
+        preco_atual = precos_camisas[produto_selecionado]
+        
+        # NOVO: st.metric para deixar o preço em destaque e verde (o delta ajuda na cor)
+        st.metric(label="Preço Unitário", value=formatar_moeda(preco_atual), delta="Preço Especial")
+        
+        st.write("") # Espaço extra
         
         if st.button("➕ Adicionar ao Carrinho", use_container_width=True, type="primary"):
             st.session_state.carrinho.append({
                 "Camisa": produto_selecionado,
                 "Modelo": estilo_selecionado,
                 "Tamanho": tamanho_selecionado,
-                "Preço": PRECO_BASE
+                "Preço": preco_atual
             })
             st.success("Adicionada! Vá para a aba 'Meu Carrinho' para finalizar.")
 
@@ -163,8 +177,9 @@ def page_carrinho():
         horizontal=True
     )
 
+    # NOVO: Calcula o subtotal somando os preços individuais de cada item
     quantidade = len(st.session_state.carrinho)
-    subtotal = quantidade * PRECO_BASE
+    subtotal = sum(item["Preço"] for item in st.session_state.carrinho)
     desconto = 0.0
     
     if "Cartão" in metodo_pagamento:
@@ -206,10 +221,12 @@ def page_carrinho():
             if os.path.exists(caminho_qr):
                 st.image(caminho_qr, width=200)
             else:
-                st.write("[Salve sua imagem do QR Code como 'qrcode_pix.png' na pasta do Github para aparecer aqui]")
+                st.write("[Imagem qrcode_pix.png não encontrada no sistema]")
         with col_chave:
             st.write("**Chave PIX (E-mail):**")
             st.code("caeconomiagv@gmail.com", language="text")
+            st.write("**Pix Copia-e-cola:**")
+            st.code("00020126440014br.gov.bcb.pix0122caeconomiagv@gmail.com5204000053039865802BR5901N6001C62130509CAECO2026630451B7", language="text")
             st.caption("Favorecido: Centro Acadêmico de Economia GV")
         
     else:
@@ -247,7 +264,6 @@ def page_pedidos():
     st.title("📦 Meus Pedidos")
     if os.path.exists("pedidos_caeco.csv"):
         df = pd.read_csv("pedidos_caeco.csv")
-        # Filtra para mostrar só os pedidos do usuário atual
         meus_pedidos = df[df['Email'] == st.session_state.usuario_logado['email']]
         if not meus_pedidos.empty:
             st.dataframe(meus_pedidos, use_container_width=True)
@@ -264,7 +280,6 @@ def page_admin():
         df = pd.read_csv("pedidos_caeco.csv")
         st.dataframe(df, use_container_width=True)
         
-        # Botão para baixar a planilha para mandar pro fornecedor
         with open("pedidos_caeco.csv", "rb") as file:
             st.download_button(
                 label="📥 Baixar Planilha para o Fornecedor",
@@ -289,7 +304,6 @@ if st.session_state.usuario_logado is None:
         st.title("👕 Central CAECO")
         st.write("Bem-vindo ao sistema oficial de vendas do Centro Acadêmico de Economia.")
         
-        # Construindo o Link de Login do Google
         auth_url = "https://accounts.google.com/o/oauth2/auth"
         parametros = {
             "client_id": st.secrets["google"]["client_id"],
@@ -308,7 +322,6 @@ if st.session_state.usuario_logado is None:
 
 # 3. Navegação Moderna (Se estiver logado)
 else:
-    # Cria o menu lateral de usuário
     with st.sidebar:
         st.image(st.session_state.usuario_logado['foto'], width=50)
         st.write(f"Olá, **{st.session_state.usuario_logado['nome']}**!")
@@ -317,17 +330,14 @@ else:
             st.session_state.carrinho = []
             st.rerun()
 
-    # Define as páginas acessíveis
     paginas_app = [
         st.Page(page_loja, title="Loja de Camisetas", icon="🛍️", default=True),
         st.Page(page_carrinho, title="Meu Carrinho", icon="🛒"),
         st.Page(page_pedidos, title="Meus Pedidos", icon="📦"),
     ]
     
-    # A MÁGICA: Se o email for do CAECO, adiciona a página de Admin!
     if st.session_state.usuario_logado["email"] == "caeconomiagv@gmail.com":
         paginas_app.append(st.Page(page_admin, title="Gestão CAECO", icon="👑"))
 
-    # Inicia a navegação nativa do Streamlit
     nav = st.navigation(paginas_app)
     nav.run()
