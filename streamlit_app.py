@@ -83,7 +83,7 @@ st.write(f"Bem-vindo(a), **{st.session_state.usuario_logado}**!")
 # PROMOÇÃO EM DESTAQUE
 st.success("🚨 **PROMOÇÃO ATIVA:** Compre 2 ou mais camisetas e ganhe até **10% de desconto** pagando no PIX!")
 
-if st.button("Sair da conta (Logout)", size="small"):
+if st.button("Sair da conta (Logout)"):
     st.session_state.usuario_logado = None
     st.session_state.carrinho = []
     st.rerun()
