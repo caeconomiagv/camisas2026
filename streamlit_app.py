@@ -25,35 +25,51 @@ produtos = [
 ]
 
 # Dicionário mapeando o nome do produto para o arquivo da imagem
-# IMPORTANTE: Coloque as fotos reais na mesma pasta deste arquivo app.py com os nomes abaixo
 imagens_camisas = {
-    "01 - Economia Padrão": "Gemini_Generated_Image_sx64lasx64lasx64.png", # Substitua pelo nome do seu arquivo real
-    "02 - Ceteris Paribus": "Gemini_Generated_Image_udlc0wudlc0wudlc.png",    # A imagem que você enviou
-    "03 - Economia Frente e Verso": "Gemini_Generated_Image_ap1b2jap1b2jap1b.png", # Substitua pelo arquivo real
-    "04 - Economia Oversized": "Gemini_Generated_Image_vxmh2evxmh2evxmh.png"     # Substitua pelo arquivo real
+    "01 - Economia Padrão": "Gemini_Generated_Image_sx64lasx64lasx64.png", 
+    "02 - Ceteris Paribus": "Gemini_Generated_Image_udlc0wudlc0wudlc.png",    
+    "03 - Economia Frente e Verso": "Gemini_Generated_Image_ap1b2jap1b2jap1b.png", 
+    "04 - Economia Oversized": "Gemini_Generated_Image_vxmh2evxmh2evxmh.png"     
 }
 
 # --- SEÇÃO 1: ADICIONAR PRODUTOS ---
 st.subheader("1. Escolha suas Camisetas")
 
+# Criação de colunas para organizar o layout (Esta é a linha que estava faltando!)
+col_img, col_opcoes = st.columns([1, 1.5])
+
+with col_opcoes:
+    produto_selecionado = st.selectbox("Qual camisa?", produtos)
+    estilo_selecionado = st.selectbox("Modelo", ["Normal", "Babylook"])
+    tamanho_selecionado = st.selectbox("Tamanho", ["P", "M", "G", "GG"])
+    
+    st.write("") # Espaço extra
+    if st.button("➕ Adicionar ao Carrinho", use_container_width=True, type="primary"):
+        st.session_state.carrinho.append({
+            "Camisa": produto_selecionado,
+            "Modelo": estilo_selecionado,
+            "Tamanho": tamanho_selecionado,
+            "Preço": PRECO_BASE
+        })
+        st.success(f"{produto_selecionado} adicionada ao carrinho!")
+
 # Mostra a imagem correspondente na coluna da esquerda
 with col_img:
     arquivo_imagem = imagens_camisas.get(produto_selecionado)
     
-    # 1. Garante que o produto selecionado realmente existe no dicionário (não é nulo)
     if arquivo_imagem:
-        # 2. Pega o caminho absoluto da pasta onde este script (app.py) está rodando
         caminho_base = os.path.dirname(__file__) 
-        # 3. Junta a pasta do script com o nome da imagem
         caminho_completo = os.path.join(caminho_base, arquivo_imagem)
         
-        # 4. Checa com 100% de certeza se o arquivo existe antes de pedir pro Streamlit desenhar
         if os.path.exists(caminho_completo):
-            st.image(caminho_completo, use_column_width=True)
+            # AQUI ESTÁ A CORREÇÃO DO COMANDO DO STREAMLIT:
+            st.image(caminho_completo, use_container_width=True)
         else:
-            st.info(f"📷 A foto ainda está processando ou o nome está divergente.")
+            st.info(f"📷 A imagem `{arquivo_imagem}` não foi encontrada no sistema.")
     else:
         st.warning("⚠️ Produto sem imagem cadastrada.")
+
+st.divider()
 
 # --- SEÇÃO 2: CARRINHO E CÁLCULO ---
 if len(st.session_state.carrinho) > 0:
@@ -106,7 +122,6 @@ if len(st.session_state.carrinho) > 0:
         texto_resumo += f"{i+1}. {item['Camisa']} | {item['Modelo']} | Tam: {item['Tamanho']}\n"
     texto_resumo += f"\nTOTAL PAGO: R$ {total:,.2f}".replace('.', ',')
 
-    # O st.code cria uma caixinha bonitinha com um botão de "Copiar" automático
     st.code(texto_resumo, language='text')
     
     # Link oficial do forms
