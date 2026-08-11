@@ -23,25 +23,44 @@ produtos = [
     "04 - Economia Oversized"
 ]
 
+# Dicionário mapeando o nome do produto para o arquivo da imagem
+# IMPORTANTE: Coloque as fotos reais na mesma pasta deste arquivo app.py com os nomes abaixo
+imagens_camisas = {
+    "01 - Economia Padrão": "economia_padrao.png", # Substitua pelo nome do seu arquivo real
+    "02 - Ceteris Paribus": "image_9e2e1a.png",    # A imagem que você enviou
+    "03 - Economia Frente e Verso": "frente_verso.png", # Substitua pelo arquivo real
+    "04 - Economia Oversized": "oversized.png"     # Substitua pelo arquivo real
+}
+
 # --- SEÇÃO 1: ADICIONAR PRODUTOS ---
-st.subheader("1. Monte seu Pedido")
+st.subheader("1. Escolha suas Camisetas")
 
-col1, col2, col3 = st.columns([2, 1, 1])
-with col1:
+# Criação de colunas para organizar o layout
+col_img, col_opcoes = st.columns([1, 1.5])
+
+with col_opcoes:
     produto_selecionado = st.selectbox("Qual camisa?", produtos)
-with col2:
     estilo_selecionado = st.selectbox("Modelo", ["Normal", "Babylook"])
-with col3:
     tamanho_selecionado = st.selectbox("Tamanho", ["P", "M", "G", "GG"])
+    
+    st.write("") # Espaço extra
+    if st.button("➕ Adicionar ao Carrinho", use_container_width=True, type="primary"):
+        st.session_state.carrinho.append({
+            "Camisa": produto_selecionado,
+            "Modelo": estilo_selecionado,
+            "Tamanho": tamanho_selecionado,
+            "Preço": PRECO_BASE
+        })
+        st.success(f"{produto_selecionado} adicionada ao carrinho!")
 
-if st.button("➕ Adicionar ao Carrinho", use_container_width=True):
-    st.session_state.carrinho.append({
-        "Camisa": produto_selecionado,
-        "Modelo": estilo_selecionado,
-        "Tamanho": tamanho_selecionado,
-        "Preço": PRECO_BASE
-    })
-    st.success(f"{produto_selecionado} adicionada ao carrinho!")
+# Mostra a imagem correspondente na coluna da esquerda
+with col_img:
+    arquivo_imagem = imagens_camisas.get(produto_selecionado)
+    try:
+        st.image(arquivo_imagem, use_column_width=True)
+    except FileNotFoundError:
+        # Se a imagem não for encontrada na pasta, mostra um aviso amigável
+        st.info(f"📷 A imagem `{arquivo_imagem}` não foi encontrada. Salve a foto com esse nome na mesma pasta do código para ela aparecer aqui.")
 
 st.divider()
 
@@ -82,12 +101,12 @@ if len(st.session_state.carrinho) > 0:
     colB.metric(label=f"Desconto ({desconto*100:g}%)", value=f"- R$ {valor_desconto:,.2f}".replace('.', ','))
     colC.metric(label="Total a Pagar", value=f"R$ {total:,.2f}".replace('.', ','))
 
-    st.info("⚠️ **Atenção:** Realize o PIX exatamente no valor do 'Total a Pagar' acima.")
+    st.info("⚠️ **Atenção:** Realize a transferência exatamente no valor do 'Total a Pagar' acima.")
 
     st.divider()
 
     # --- SEÇÃO 3: INTEGRAÇÃO COM FORMS ---
-    st.subheader("📝 Passo Final: Enviar Pedido")
+    st.subheader("📝 Passo Final: Finalizar Pedido")
     st.write("Copie o resumo abaixo, clique no link do formulário, cole no espaço indicado e anexe seu comprovante.")
     
     # Gerar texto para o usuário copiar
@@ -96,9 +115,9 @@ if len(st.session_state.carrinho) > 0:
         texto_resumo += f"{i+1}. {item['Camisa']} | {item['Modelo']} | Tam: {item['Tamanho']}\n"
     texto_resumo += f"\nTOTAL PAGO: R$ {total:,.2f}".replace('.', ',')
 
+    # O st.code cria uma caixinha bonitinha com um botão de "Copiar" automático
     st.code(texto_resumo, language='text')
     
-    # Link para o formulário
-    # Substitua a URL abaixo pelo link real do seu Google Forms
-    url_do_forms = "https://docs.google.com/forms/d/e/SEU_LINK_AQUI/viewform"
-    st.markdown(f"[**👉 CLIQUE AQUI PARA ABRIR O FORMULÁRIO E ANEXAR O PIX**]({url_do_forms})")
+    # Link oficial do forms
+    url_do_forms = "https://forms.gle/t6xnBNdS3ymPUh9k9"
+    st.markdown(f"### [**👉 CLIQUE AQUI PARA ABRIR O FORMULÁRIO E FINALIZAR**]({url_do_forms})")
