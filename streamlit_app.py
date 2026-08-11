@@ -35,12 +35,20 @@ imagens_camisas = {
 # --- SEÇÃO 1: ADICIONAR PRODUTOS ---
 st.subheader("1. Escolha suas Camisetas")
 
-# Criação de colunas para organizar o layout (Esta é a linha que estava faltando!)
+# Criação de colunas para organizar o layout
 col_img, col_opcoes = st.columns([1, 1.5])
 
 with col_opcoes:
     produto_selecionado = st.selectbox("Qual camisa?", produtos)
-    estilo_selecionado = st.selectbox("Modelo", ["Normal", "Babylook"])
+    
+    # NOVA LÓGICA: Verifica se é a Oversized para mudar as opções de modelo
+    if produto_selecionado == "04 - Economia Oversized":
+        # Deixa apenas a opção "Oversized" e desabilita a caixinha
+        estilo_selecionado = st.selectbox("Modelo", ["Oversized"], disabled=True)
+    else:
+        # Mostra as opções normais para as outras camisas
+        estilo_selecionado = st.selectbox("Modelo", ["Normal", "Babylook"])
+        
     tamanho_selecionado = st.selectbox("Tamanho", ["P", "M", "G", "GG"])
     
     st.write("") # Espaço extra
@@ -62,7 +70,6 @@ with col_img:
         caminho_completo = os.path.join(caminho_base, arquivo_imagem)
         
         if os.path.exists(caminho_completo):
-            # AQUI ESTÁ A CORREÇÃO DO COMANDO DO STREAMLIT:
             st.image(caminho_completo, use_container_width=True)
         else:
             st.info(f"📷 A imagem `{arquivo_imagem}` não foi encontrada no sistema.")
