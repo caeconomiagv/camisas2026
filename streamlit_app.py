@@ -278,7 +278,6 @@ def page_carrinho():
     
     if st.button("✅ ENVIAR PEDIDO", use_container_width=True, type="primary"):
         if comprovante is not None:
-            # Correção: Chamando a função correta
             salvar_pedido_sheets(
                 st.session_state.usuario_logado['email'], 
                 st.session_state.usuario_logado['nome'], 
@@ -296,7 +295,7 @@ def page_carrinho():
 def page_pedidos():
     st.title("📦 Meus Pedidos")
     
-    # Etapa 4: Lendo do Banco de Dados Google Sheets
+    # Lendo do Banco de Dados Google Sheets
     df = obter_dados_sheets()
     
     if not df.empty and 'Email' in df.columns:
@@ -334,28 +333,45 @@ def page_pedidos():
     else:
         st.info("O banco de dados ainda está vazio.")
 
+# ==========================================
+# POP-UP DE EXCLUSÃO (st.dialog)
+# ==========================================
+@st.dialog("⚠️ Confirmar Exclusão")
+def modal_excluir_pedido(linha_planilha, cliente_nome):
+    st.write(f"Tem certeza que deseja apagar permanentemente o pedido de **{cliente_nome}**?")
+    st.write("Esta ação removerá a linha do Google Sheets e não poderá ser desfeita.")
+    
+    col_sim, col_nao = st.columns(2)
+    if col_sim.button("✅ Sim, apagar", use_container_width=True):
+        sheet = conectar_google_sheets()
+        sheet.delete_rows(linha_planilha) 
+        st.rerun()
+    if col_nao.button("❌ Cancelar", use_container_width=True):
+        st.rerun()
+
+# ==========================================
+# PÁGINA DO ADMINISTRADOR
+# ==========================================
 def page_admin():
     st.title("👑 Gestão CAECO - Painel Administrativo")
     st.write("Controle completo de vendas, relatórios e status.")
     
-    # Etapa 4: Lendo do Banco de Dados Google Sheets
     df = obter_dados_sheets()
     
     if not df.empty:
-        st.subheader("📋 Gestão Individual de Pedidos")
-        st.caption("Clique no nome do cliente para expandir e alterar o status da compra.")
+        opcoes_status = ["Pagamento pendente", "Pagamento aprovado", "Em produção", "Disponível para entrega"]
         
-        # Design Novo: Usando sanfonas (expanders)
+        st.subheader("📋 Gestão Individual de Pedidos")
+        st.caption("Clique no nome do cliente para expandir as opções.")
+        
         for index, row in df.iterrows():
-            with st.expander(f"🛒 {row['Cliente']} - {row['Data']} ({row['Status']})"):
+            with st.expander(f"🛒 {row['Cliente']} - {row['Data']} (Atual: {row['Status']})"):
                 st.write(f"**E-mail:** {row['Email']}")
                 st.write(f"**Itens:** {row['Itens']}")
                 st.write(f"**Total Pago:** {row['Total_Pago']} via {row['Metodo_Pagamento']}")
                 
                 st.divider()
-                # Configuração para atualizar o Google Sheets (Índice + 2 pois a planilha pula o cabeçalho)
                 linha_planilha = index + 2 
-                opcoes_status = ["Pagamento pendente", "Pagamento aprovado", "Em produção", "Disponível para entrega"]
                 
                 novo_status = st.selectbox(
                     "Atualizar Status do Pedido:", 
@@ -364,13 +380,74 @@ def page_admin():
                     key=f"status_{index}"
                 )
                 
-                if st.button("💾 Salvar Novo Status", key=f"btn_{index}", type="primary"):
-                    sheet = conectar_google_sheets()
-                    # Coluna 7 é a coluna do Status na sua planilha
-                    sheet.update_cell(linha_planilha, 7, novo_status)
-                    st.success("Status atualizado no Google Sheets!")
-                    st.rerun()
+                # Botões lado a lado para Salvar ou Excluir
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 Salvar Novo Status", key=f"btn_{index}", type="primary", use_container_width=True):
+                        sheet = conectar_google_sheets()
+                        sheet.update_cell(linha_planilha, 7, novo_status)
+                        st.success("Status atualizado!")
+                        st.rerun()
+                with col_btn2:
+                    if st.button("🗑️ Apagar Pedido", key=f"del_{index}", type="secondary", use_container_width=True):
+                        modal_excluir_pedido(linha_planilha, row['Cliente'])
 
+        st.divider()
+        
+        # ---------------------------------------------------------
+        # NOVA SEÇÃO: ATUALIZAÇÃO E E-MAIL EM LOTE
+        # ---------------------------------------------------------
+        st.subheader("🔄 Atualização e E-mail em Lote")
+        st.write("Selecione vários pedidos para alterar o status simultaneamente e gerar um e-mail conjunto.")
+        
+        # Cria uma lista legível para o multiselect
+        opcoes_pedidos = []
+        for index, row in df.iterrows():
+            opcoes_pedidos.append(f"ID {index} - {row['Cliente']} ({row['Status']})")
+            
+        pedidos_selecionados = st.multiselect("1. Selecione os clientes:", opcoes_pedidos)
+        novo_status_lote = st.selectbox("2. Novo status para aplicar a todos:", opcoes_status, key="status_lote")
+        
+        if st.button("🚀 Atualizar Selecionados", type="primary"):
+            if pedidos_selecionados:
+                sheet = conectar_google_sheets()
+                emails_notificar = []
+                
+                with st.spinner("Atualizando banco de dados na nuvem..."):
+                    for p in pedidos_selecionados:
+                        # Puxa o index da linha selecionada
+                        idx_str = p.split(" - ")[0].replace("ID ", "")
+                        idx_real = int(idx_str)
+                        linha_planilha = idx_real + 2
+                        
+                        sheet.update_cell(linha_planilha, 7, novo_status_lote)
+                        
+                        email = df.iloc[idx_real]['Email']
+                        if email not in emails_notificar:
+                            emails_notificar.append(email)
+                
+                st.success(f"✅ {len(pedidos_selecionados)} pedidos atualizados com sucesso!")
+                
+                # Gera o link do Gmail em BCC (Cópia Oculta)
+                lista_emails_bcc = ",".join(emails_notificar)
+                assunto = urllib.parse.quote(f"Atualização do seu Pedido - {novo_status_lote}")
+                corpo = urllib.parse.quote(f"Olá!\n\nSeu pedido de camisas da CAECO teve o status atualizado para: {novo_status_lote}.\n\n{mensagens_status.get(novo_status_lote, '')}\n\nAtenciosamente,\nEquipe CAECO")
+                
+                link_mailto = f"mailto:caeconomiagv@gmail.com?bcc={lista_emails_bcc}&subject={assunto}&body={corpo}"
+                
+                st.markdown(f"""
+                    <div style="margin-top: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">
+                        <h4>Próximo passo:</h4>
+                        <a href="{link_mailto}" target="_blank" style="background-color: #4285F4; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                            📧 Abrir Gmail para Avisar Clientes
+                        </a>
+                        <p style="font-size: 13px; margin-top: 10px; color: gray;">Os e-mails serão enviados em <b>Cópia Oculta (BCC)</b> para garantir a privacidade de todos os alunos.</p>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.error("Selecione pelo menos um pedido na lista acima.")
+
+        # ---------------------------------------------------------
         st.divider()
         st.subheader("📊 Relatório para o Fornecedor")
         
@@ -393,16 +470,12 @@ def page_admin():
         st.info("Nenhuma venda registrada até o momento.")
 
 # ==========================================
-# DECLARAÇÃO DE PÁGINAS GLOBAIS (st.Page)
+# DECLARAÇÃO DE PÁGINAS GLOBAIS E NAVEGAÇÃO
 # ==========================================
 pg_loja = st.Page(page_loja, title="Loja de Camisetas", icon="🛍️", default=True)
 pg_carrinho = st.Page(page_carrinho, title="Meu Carrinho", icon="🛒")
 pg_pedidos = st.Page(page_pedidos, title="Meus Pedidos", icon="📦")
 pg_admin = st.Page(page_admin, title="Gestão CAECO", icon="👑")
-
-# ==========================================
-# CONTROLADOR DE NAVEGAÇÃO E SESSÃO
-# ==========================================
 
 verificar_login_google()
 
