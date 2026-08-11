@@ -4,6 +4,7 @@ import os
 import datetime
 import urllib.parse
 import requests
+import base64
 
 # A configuração da página DEVE ser a primeira coisa no código
 st.set_page_config(page_title="Loja CAECO", page_icon="👕", layout="wide")
@@ -14,7 +15,7 @@ st.set_page_config(page_title="Loja CAECO", page_icon="👕", layout="wide")
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
-# NOVO: Dicionário de Preços Específicos
+# Dicionário de Preços Específicos
 precos_camisas = {
     "01 - Economia Padrão": 59.99,
     "02 - Ceteris Paribus": 59.99,
@@ -100,7 +101,7 @@ def verificar_login_google():
 # ==========================================
 
 def page_loja():
-    # NOVO: Letreiro giratório preto com letras chamativas
+    # Letreiro giratório preto com letras chamativas
     st.markdown("""
         <div style="background-color: #000000; color: #39ff14; padding: 10px; border-radius: 5px; margin-bottom: 20px;">
             <marquee behavior="scroll" direction="left" scrollamount="10" style="font-size: 22px; font-weight: bold; text-transform: uppercase;">
@@ -127,13 +128,12 @@ def page_loja():
         
         st.info("ℹ️ **Material:** 100% algodão penteado, gramatura ideal e zero transparência.")
         
-        # NOVO: Busca o preço exato da camisa selecionada
         preco_atual = precos_camisas[produto_selecionado]
         
-        # NOVO: st.metric para deixar o preço em destaque e verde (o delta ajuda na cor)
-        st.metric(label="Preço Unitário", value=formatar_moeda(preco_atual), delta="Preço Especial")
+        # Preço limpo em verde, sem a palavra extra
+        st.markdown(f"<h3 style='color: #198754; font-weight: 800; margin-top: 10px;'>Por: {formatar_moeda(preco_atual)}</h3>", unsafe_allow_html=True)
         
-        st.write("") # Espaço extra
+        st.write("") 
         
         if st.button("➕ Adicionar ao Carrinho", use_container_width=True, type="primary"):
             st.session_state.carrinho.append({
@@ -149,8 +149,36 @@ def page_loja():
         if arquivo_imagem:
             caminho_completo = os.path.join(os.path.dirname(__file__), arquivo_imagem)
             if os.path.exists(caminho_completo):
-                st.image(caminho_completo, use_container_width=True)
-                st.caption("🔍 **Dica de Visualização:** Passe o mouse sobre a imagem e clique no ícone de setas no canto superior direito para dar zoom na estampa.")
+                # Efeito de Lupa/Zoom com CSS interativo
+                with open(caminho_completo, "rb") as image_file:
+                    encoded_string = base64.b64encode(image_file.read()).decode()
+                
+                st.markdown(
+                    f"""
+                    <style>
+                    .zoom-container {{
+                        overflow: hidden;
+                        border-radius: 10px;
+                        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                        width: 100%;
+                    }}
+                    .zoom-img {{
+                        width: 100%;
+                        transition: transform 0.4s ease;
+                        cursor: zoom-in;
+                        display: block;
+                    }}
+                    .zoom-img:hover {{
+                        transform: scale(1.8);
+                    }}
+                    </style>
+                    <div class="zoom-container">
+                        <img src="data:image/png;base64,{encoded_string}" class="zoom-img">
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.caption("🔍 **Dica de Visualização:** Passe o mouse sobre a imagem para dar zoom e ver os detalhes da estampa.")
             else:
                 st.info(f"📷 Imagem não encontrada no servidor.")
 
@@ -177,7 +205,6 @@ def page_carrinho():
         horizontal=True
     )
 
-    # NOVO: Calcula o subtotal somando os preços individuais de cada item
     quantidade = len(st.session_state.carrinho)
     subtotal = sum(item["Preço"] for item in st.session_state.carrinho)
     desconto = 0.0
