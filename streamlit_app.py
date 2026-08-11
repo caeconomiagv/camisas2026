@@ -5,6 +5,7 @@ import datetime
 import urllib.parse
 import requests
 import base64
+import gspread
 
 # ==========================================
 # CONFIGURAÇÃO INICIAL (DEVE SER A PRIMEIRA LINHA)
@@ -16,6 +17,23 @@ st.set_page_config(page_title="Loja CAECO", page_icon="👕", layout="wide")
 # ==========================================
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+# Conexão centralizada com o Banco de Dados (Google Sheets)
+def conectar_google_sheets():
+    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    sh = gc.open("Banco de Dados CAECO")
+    return sh.sheet1 
+
+# Função da ETAPA 4: Puxar todos os dados da planilha para o sistema
+def obter_dados_sheets():
+    try:
+        sheet = conectar_google_sheets()
+        dados = sheet.get_all_records()
+        if not dados:
+            return pd.DataFrame()
+        return pd.DataFrame(dados)
+    except Exception as e:
+        return pd.DataFrame()
 
 precos_camisas = {
     "01 - Economia Padrão": 59.99,
@@ -33,7 +51,6 @@ imagens_camisas = {
     "04 - Economia Oversized": "Gemini_Generated_Image_vxmh2evxmh2evxmh.png"     
 }
 
-# Dicionário de mensagens de status
 mensagens_status = {
     "Pagamento pendente": "O processo é manual, a equipe CAECO está analisando suas compras e checando se o pagamento foi realizado.",
     "Pagamento aprovado": "A equipe CAECO confirmou seu pagamento, estamos contatando o produtor e após o prazo de vendas geral, iremos informar o tempo de até 15 dias para entrega.",
@@ -41,41 +58,23 @@ mensagens_status = {
     "Disponível para entrega": "A CAECO buscou as camisas e o pedido está pronto para ser retirado! Entre em contato com o número: +55 33 99947-9385 ou [clique aqui para acessar o WhatsApp](https://wa.me/5533999479385) para procurar formas de retirar."
 }
 
-# Inicialização de Variáveis
 if 'carrinho' not in st.session_state:
     st.session_state.carrinho = []
 if 'usuario_logado' not in st.session_state:
     st.session_state.usuario_logado = None
 
-def salvar_pedido_csv(email, nome, carrinho, total, pagamento, arquivo_comprovante):
-    arquivo_csv = "pedidos_caeco.csv"
+# Função de salvamento direto no Google Sheets
+def salvar_pedido_sheets(email, nome, carrinho, total, pagamento, arquivo_comprovante):
+    sheet = conectar_google_sheets()
     data_hora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
     resumo_itens = " | ".join([f"{i['Camisa']} ({i['Modelo']}) - Tam:{i['Tamanho']}" for i in carrinho])
     
-    # Salvar o arquivo do comprovante fisicamente
-    caminho_comprovante = "Sem comprovante"
-    if arquivo_comprovante is not None:
-        os.makedirs("comprovantes", exist_ok=True)
-        nome_arquivo = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{email}_{arquivo_comprovante.name}"
-        caminho_comprovante = os.path.join("comprovantes", nome_arquivo)
-        with open(caminho_comprovante, "wb") as f:
-            f.write(arquivo_comprovante.getbuffer())
+    # A nuvem não guarda arquivos fisicamente, então registramos que foi enviado no app
+    caminho_comprovante = "Enviado no app"
     
-    novo_pedido = pd.DataFrame([{
-        "Data": data_hora,
-        "Email": email,
-        "Cliente": nome,
-        "Itens": resumo_itens,
-        "Total_Pago": total,
-        "Metodo_Pagamento": pagamento,
-        "Status": "Pagamento pendente",
-        "Comprovante": caminho_comprovante
-    }])
-    
-    if os.path.exists(arquivo_csv):
-        novo_pedido.to_csv(arquivo_csv, mode='a', header=False, index=False)
-    else:
-        novo_pedido.to_csv(arquivo_csv, index=False)
+    sheet.append_row([
+        data_hora, email, nome, resumo_itens, total, pagamento, "Pagamento pendente", caminho_comprovante
+    ])
 
 # ==========================================
 # FLUXO DE LOGIN (GOOGLE OAUTH 2.0)
@@ -158,7 +157,6 @@ def page_loja():
             })
             st.success("Adicionada com sucesso!")
         
-        # Botão para redirecionar para o carrinho usando a variável global da página
         if len(st.session_state.carrinho) > 0:
             if st.button("🛒 Ver Meu Carrinho", use_container_width=True):
                 st.switch_page(pg_carrinho)
@@ -201,7 +199,6 @@ def page_carrinho():
 
     st.divider()
     
-    # AVISO IMPORTANTE ANTES DO PAGAMENTO
     st.warning("""
     📌 **INFORMAÇÕES IMPORTANTES SOBRE A ENCOMENDA:**
     * O produto será produzido **assim que o prazo de vendas acabar**.
@@ -281,7 +278,8 @@ def page_carrinho():
     
     if st.button("✅ ENVIAR PEDIDO", use_container_width=True, type="primary"):
         if comprovante is not None:
-            salvar_pedido_csv(
+            # Correção: Chamando a função correta
+            salvar_pedido_sheets(
                 st.session_state.usuario_logado['email'], 
                 st.session_state.usuario_logado['nome'], 
                 st.session_state.carrinho, 
@@ -297,86 +295,89 @@ def page_carrinho():
 
 def page_pedidos():
     st.title("📦 Meus Pedidos")
-    if os.path.exists("pedidos_caeco.csv"):
-        df = pd.read_csv("pedidos_caeco.csv")
+    
+    # Etapa 4: Lendo do Banco de Dados Google Sheets
+    df = obter_dados_sheets()
+    
+    if not df.empty and 'Email' in df.columns:
         meus_pedidos = df[df['Email'] == st.session_state.usuario_logado['email']]
         
         if not meus_pedidos.empty:
             for index, row in meus_pedidos.iterrows():
-                st.markdown(f"### Pedido de {row['Data']}")
-                st.write(f"**Itens:** {row['Itens']}")
-                st.write(f"**Total Pago:** {row['Total_Pago']} ({row['Metodo_Pagamento']})")
-                
-                # Destaca o status atual
-                status_atual = row['Status']
-                st.info(f"**Status Atual:** {status_atual}")
-                
-                # Mostra o texto longo correspondente ao status
-                if status_atual in mensagens_status:
-                    st.write(mensagens_status[status_atual])
-                
-                st.divider()
+                with st.container(border=True):
+                    st.subheader(f"Pedido de {row['Data']}")
+                    st.write(f"**Total Pago:** {row['Total_Pago']} ({row['Metodo_Pagamento']})")
+                    st.write("---")
+                    
+                    # Design Novo: Quebrando a string e mostrando a miniatura do produto
+                    itens_comprados = str(row['Itens']).split(" | ")
+                    for item in itens_comprados:
+                        nome_camisa = item.split(" (")[0] # Pega só a primeira parte do nome
+                        col_foto, col_desc = st.columns([1, 5])
+                        
+                        with col_foto:
+                            if nome_camisa in imagens_camisas and os.path.exists(imagens_camisas[nome_camisa]):
+                                st.image(imagens_camisas[nome_camisa], width=60)
+                            else:
+                                st.write("👕")
+                        with col_desc:
+                            st.write(f"**{item}**")
+                    
+                    st.write("---")
+                    status_atual = row['Status']
+                    st.info(f"**Status Atual:** {status_atual}")
+                    
+                    if status_atual in mensagens_status:
+                        st.write(mensagens_status[status_atual])
         else:
             st.info("Você ainda não realizou nenhum pedido conosco.")
     else:
-        st.info("Você ainda não realizou nenhum pedido conosco.")
+        st.info("O banco de dados ainda está vazio.")
 
 def page_admin():
     st.title("👑 Gestão CAECO - Painel Administrativo")
     st.write("Controle completo de vendas, relatórios e status.")
     
-    if os.path.exists("pedidos_caeco.csv"):
-        df = pd.read_csv("pedidos_caeco.csv")
+    # Etapa 4: Lendo do Banco de Dados Google Sheets
+    df = obter_dados_sheets()
+    
+    if not df.empty:
+        st.subheader("📋 Gestão Individual de Pedidos")
+        st.caption("Clique no nome do cliente para expandir e alterar o status da compra.")
         
-        st.subheader("📋 Tabela Geral de Pedidos")
-        st.write("Altere o status do cliente diretamente na tabela abaixo e clique em 'Salvar'.")
-        
-        # Cria um editor de dados para alterar o status
-        df_editavel = st.data_editor(
-            df,
-            column_config={
-                "Status": st.column_config.SelectboxColumn(
-                    "Situação (Clique para alterar)",
-                    options=["Pagamento pendente", "Pagamento aprovado", "Em produção", "Disponível para entrega"],
-                    required=True
+        # Design Novo: Usando sanfonas (expanders)
+        for index, row in df.iterrows():
+            with st.expander(f"🛒 {row['Cliente']} - {row['Data']} ({row['Status']})"):
+                st.write(f"**E-mail:** {row['Email']}")
+                st.write(f"**Itens:** {row['Itens']}")
+                st.write(f"**Total Pago:** {row['Total_Pago']} via {row['Metodo_Pagamento']}")
+                
+                st.divider()
+                # Configuração para atualizar o Google Sheets (Índice + 2 pois a planilha pula o cabeçalho)
+                linha_planilha = index + 2 
+                opcoes_status = ["Pagamento pendente", "Pagamento aprovado", "Em produção", "Disponível para entrega"]
+                
+                novo_status = st.selectbox(
+                    "Atualizar Status do Pedido:", 
+                    opcoes_status, 
+                    index=opcoes_status.index(row['Status']) if row['Status'] in opcoes_status else 0,
+                    key=f"status_{index}"
                 )
-            },
-            disabled=["Data", "Email", "Cliente", "Itens", "Total_Pago", "Metodo_Pagamento", "Comprovante"],
-            use_container_width=True
-        )
-        
-        if st.button("💾 Salvar Alterações de Status", type="primary"):
-            df_editavel.to_csv("pedidos_caeco.csv", index=False)
-            st.success("Tabela atualizada com sucesso!")
-            st.rerun()
-
-        st.divider()
-        st.subheader("📧 Avisar Cliente")
-        st.write("Gere um e-mail pré-formatado para notificar o cliente sobre a mudança de status.")
-        
-        col_email1, col_email2 = st.columns(2)
-        with col_email1:
-            cliente_sel = st.selectbox("Selecione o Cliente", df['Email'].unique())
-        with col_email2:
-            # Pega o status atual do cliente selecionado
-            status_cliente = df[df['Email'] == cliente_sel].iloc[-1]['Status']
-            
-            assunto = urllib.parse.quote("Atualização do seu Pedido - Camisas CAECO")
-            corpo = urllib.parse.quote(f"Olá!\n\nSeu pedido de camisas da CAECO teve o status atualizado para: {status_cliente}.\n\n{mensagens_status.get(status_cliente, '')}\n\nAtenciosamente,\nEquipe CAECO")
-            link_mailto = f"mailto:{cliente_sel}?subject={assunto}&body={corpo}"
-            
-            st.write("")
-            st.write("")
-            st.markdown(f"""<a href="{link_mailto}" target="_blank" style="background-color: #4285F4; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">📧 Abrir Gmail para Avisar Cliente</a>""", unsafe_allow_html=True)
+                
+                if st.button("💾 Salvar Novo Status", key=f"btn_{index}", type="primary"):
+                    sheet = conectar_google_sheets()
+                    # Coluna 7 é a coluna do Status na sua planilha
+                    sheet.update_cell(linha_planilha, 7, novo_status)
+                    st.success("Status atualizado no Google Sheets!")
+                    st.rerun()
 
         st.divider()
         st.subheader("📊 Relatório para o Fornecedor")
         
-        # Conta a quantidade exata de cada item (quebrando as strings)
         todos_itens = []
         for index, row in df.iterrows():
-            if row['Status'] != "Pagamento pendente": # Só conta quem já teve o pagamento aprovado ou além
-                itens_pedido = row['Itens'].split(" | ")
+            if row['Status'] != "Pagamento pendente": 
+                itens_pedido = str(row['Itens']).split(" | ")
                 for item in itens_pedido:
                     todos_itens.append(item)
                     
