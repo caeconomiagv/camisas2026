@@ -428,17 +428,18 @@ def page_admin():
                 
                 st.success(f"✅ {len(pedidos_selecionados)} pedidos atualizados com sucesso!")
                 
-                # Gera o link do Gmail em BCC (Cópia Oculta)
+                # Gera o link direto para o GMAIL NA WEB em BCC (Cópia Oculta)
                 lista_emails_bcc = ",".join(emails_notificar)
                 assunto = urllib.parse.quote(f"Atualização do seu Pedido - {novo_status_lote}")
                 corpo = urllib.parse.quote(f"Olá!\n\nSeu pedido de camisas da CAECO teve o status atualizado para: {novo_status_lote}.\n\n{mensagens_status.get(novo_status_lote, '')}\n\nAtenciosamente,\nEquipe CAECO")
                 
-                link_mailto = f"mailto:caeconomiagv@gmail.com?bcc={lista_emails_bcc}&subject={assunto}&body={corpo}"
+                # A MÁGICA AQUI: Usando o link oficial do Gmail em vez de mailto:
+                link_gmail = f"https://mail.google.com/mail/?view=cm&fs=1&to=caeconomiagv@gmail.com&bcc={lista_emails_bcc}&su={assunto}&body={corpo}"
                 
                 st.markdown(f"""
                     <div style="margin-top: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">
                         <h4>Próximo passo:</h4>
-                        <a href="{link_mailto}" target="_blank" style="background-color: #4285F4; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                        <a href="{link_gmail}" target="_blank" style="background-color: #4285F4; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                             📧 Abrir Gmail para Avisar Clientes
                         </a>
                         <p style="font-size: 13px; margin-top: 10px; color: gray;">Os e-mails serão enviados em <b>Cópia Oculta (BCC)</b> para garantir a privacidade de todos os alunos.</p>
