@@ -26,10 +26,10 @@ produtos = [
 # Dicionário mapeando o nome do produto para o arquivo da imagem
 # IMPORTANTE: Coloque as fotos reais na mesma pasta deste arquivo app.py com os nomes abaixo
 imagens_camisas = {
-    "01 - Economia Padrão": "economia_padrao.png", # Substitua pelo nome do seu arquivo real
-    "02 - Ceteris Paribus": "image_9e2e1a.png",    # A imagem que você enviou
-    "03 - Economia Frente e Verso": "frente_verso.png", # Substitua pelo arquivo real
-    "04 - Economia Oversized": "oversized.png"     # Substitua pelo arquivo real
+    "01 - Economia Padrão": "Gemini_Generated_Image_sx64lasx64lasx64.png", # Substitua pelo nome do seu arquivo real
+    "02 - Ceteris Paribus": "Gemini_Generated_Image_udlc0wudlc0wudlc.png",    # A imagem que você enviou
+    "03 - Economia Frente e Verso": "Gemini_Generated_Image_ap1b2jap1b2jap1b.png", # Substitua pelo arquivo real
+    "04 - Economia Oversized": "Gemini_Generated_Image_vxmh2evxmh2evxmh.png"     # Substitua pelo arquivo real
 }
 
 # --- SEÇÃO 1: ADICIONAR PRODUTOS ---
