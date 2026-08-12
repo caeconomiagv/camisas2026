@@ -6,6 +6,7 @@ import urllib.parse
 import requests
 import base64
 import gspread
+import uuid
 
 # ==========================================
 # CONFIGURAÇÃO INICIAL (DEVE SER A PRIMEIRA LINHA)
@@ -18,13 +19,11 @@ st.set_page_config(page_title="Loja CAECO", page_icon="👕", layout="wide")
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
-# Conexão centralizada com o Banco de Dados (Google Sheets)
 def conectar_google_sheets():
     gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
     sh = gc.open("Banco de Dados CAECO")
     return sh.sheet1 
 
-# Função da ETAPA 4: Puxar todos os dados da planilha para o sistema
 def obter_dados_sheets():
     try:
         sheet = conectar_google_sheets()
@@ -34,6 +33,51 @@ def obter_dados_sheets():
         return pd.DataFrame(dados)
     except Exception as e:
         return pd.DataFrame()
+
+# NOVO: Função para gerar o link da InfinitePay via API
+def gerar_link_infinitepay(carrinho, total_com_desconto, nome_cliente, email_cliente):
+    handle = st.secrets["infinitepay"]["handle"]
+    # Cria um ID de pedido único para rastreio
+    order_nsu = f"CAECO-{str(uuid.uuid4())[:8].upper()}"
+    
+    # Prepara os itens no formato que a InfinitePay exige (valor em centavos)
+    itens_payload = []
+    
+    # Como a InfinitePay não aceita desconto no total, vamos aplicar o desconto proporcional 
+    # no preço de cada item apenas para o payload da API
+    fator_desconto = total_com_desconto / sum(item["Preço"] for item in carrinho)
+    
+    for item in carrinho:
+        preco_centavos = int((item["Preço"] * fator_desconto) * 100)
+        itens_payload.append({
+            "quantity": 1,
+            "price": preco_centavos,
+            "description": f"{item['Camisa']} ({item['Modelo']}) - {item['Tamanho']}"
+        })
+        
+    payload = {
+        "handle": handle,
+        "order_nsu": order_nsu,
+        "items": itens_payload,
+        "customer": {
+            "name": nome_cliente,
+            "email": email_cliente
+        }
+    }
+    
+    try:
+        url = "https://api.checkout.infinitepay.io/links"
+        resposta = requests.post(url, json=payload)
+        
+        if resposta.status_code in [200, 201]:
+            dados = resposta.json()
+            # A API geralmente devolve o link de pagamento na chave 'url' ou equivalente
+            link_pagamento = dados.get("url") or dados.get("payment_url") or dados.get("metadata", {}).get("url")
+            return link_pagamento, order_nsu
+        else:
+            return None, None
+    except Exception as e:
+        return None, None
 
 precos_camisas = {
     "01 - Economia Padrão": 59.99,
@@ -62,18 +106,17 @@ if 'carrinho' not in st.session_state:
     st.session_state.carrinho = []
 if 'usuario_logado' not in st.session_state:
     st.session_state.usuario_logado = None
+# Guarda o link gerado para não sumir se a página recarregar
+if 'checkout_url' not in st.session_state:
+    st.session_state.checkout_url = None
 
-# Função de salvamento direto no Google Sheets
-def salvar_pedido_sheets(email, nome, carrinho, total, pagamento, arquivo_comprovante):
+def salvar_pedido_sheets(email, nome, carrinho, total, pagamento, id_pedido):
     sheet = conectar_google_sheets()
     data_hora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
     resumo_itens = " | ".join([f"{i['Camisa']} ({i['Modelo']}) - Tam:{i['Tamanho']}" for i in carrinho])
     
-    # A nuvem não guarda arquivos fisicamente, então registramos que foi enviado no app
-    caminho_comprovante = "Enviado no app"
-    
     sheet.append_row([
-        data_hora, email, nome, resumo_itens, total, pagamento, "Pagamento pendente", caminho_comprovante
+        data_hora, email, nome, resumo_itens, total, pagamento, "Pagamento pendente", id_pedido
     ])
 
 # ==========================================
@@ -195,6 +238,7 @@ def page_carrinho():
     
     if st.button("🗑️ Limpar Carrinho"):
         st.session_state.carrinho = []
+        st.session_state.checkout_url = None
         st.rerun()
 
     st.divider()
@@ -206,96 +250,80 @@ def page_carrinho():
     * A CAECO é responsável apenas pela criação do design e atua como intermediadora do processo com o fornecedor.
     """)
 
-    st.subheader("💳 Forma de Pagamento")
+    st.subheader("💳 Valores e Pagamento")
     
-    metodo_pagamento = st.radio(
-        "Selecione o método:", 
-        ["PIX (Descontos Especiais)", "Cartão de Crédito via InfinitePay (Sem Desconto)"],
-        horizontal=True
-    )
-
     quantidade = len(st.session_state.carrinho)
     subtotal = sum(item["Preço"] for item in st.session_state.carrinho)
-    desconto = 0.0
     
-    if "Cartão" in metodo_pagamento:
-        st.info("⚠️ Ao pagar com cartão, os descontos progressivos da promoção não são aplicados.")
-    else:
-        if quantidade == 2:
-            desconto = 0.05
-        elif quantidade == 3:
-            desconto = 0.075
-        elif quantidade >= 4:
-            desconto = 0.10
+    # Lógica de Desconto baseada na promoção de quantidade
+    desconto = 0.0
+    if quantidade == 2:
+        desconto = 0.05
+    elif quantidade == 3:
+        desconto = 0.075
+    elif quantidade >= 4:
+        desconto = 0.10
 
     valor_desconto = subtotal * desconto
     total = subtotal - valor_desconto
 
-    st.write("---")
     colA, colB, colC = st.columns(3)
     colA.metric(label="Subtotal", value=formatar_moeda(subtotal))
     
     if desconto > 0:
-        colC.metric(label=f"Desconto PIX ({desconto*100:g}%)", value=f"- {formatar_moeda(valor_desconto)}")
+        colC.metric(label=f"Desconto ({desconto*100:g}%)", value=f"- {formatar_moeda(valor_desconto)}")
     else:
         colC.metric(label="Desconto", value="R$ 0,00")
 
-    if "PIX" in metodo_pagamento:
-        st.markdown(
-            f"""
-            <div style="background-color: #198754; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0;">
-                <p style="color: white; margin: 0; font-size: 18px; font-weight: bold;">VALOR A TRANSFERIR (PIX)</p>
-                <p style="color: white; margin: 0; font-size: 48px; font-weight: 900;">{formatar_moeda(total)}</p>
-            </div>
-            """, unsafe_allow_html=True
-        )
-        col_qr, col_chave = st.columns(2)
-        with col_qr:
-            caminho_qr = os.path.join(os.path.dirname(__file__), "qrcode_pix.png")
-            if os.path.exists(caminho_qr):
-                st.image(caminho_qr, width=200)
-            else:
-                st.write("[Imagem qrcode_pix.png não encontrada]")
-        with col_chave:
-            st.write("**Chave PIX (E-mail):**")
-            st.code("caeconomiagv@gmail.com", language="text")
-            st.write("**Pix Copia-e-cola:**")
-            st.code("00020126440014br.gov.bcb.pix0122caeconomiagv@gmail.com5204000053039865802BR5901N6001C62130509CAECO2026630451B7", language="text")
-    else:
-        st.markdown(
-            f"""
-            <div style="background-color: #0d6efd; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0;">
-                <p style="color: white; margin: 0; font-size: 18px; font-weight: bold;">TOTAL NO CARTÃO</p>
-                <p style="color: white; margin: 0; font-size: 48px; font-weight: 900;">{formatar_moeda(total)}</p>
-            </div>
-            """, unsafe_allow_html=True
-        )
-        st.markdown(f"### [**💳 CLIQUE AQUI PARA GERAR O LINK DE PAGAMENTO**](https://infinitepay.io/)")
+    st.markdown(
+        f"""
+        <div style="background-color: #198754; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0;">
+            <p style="color: white; margin: 0; font-size: 18px; font-weight: bold;">TOTAL A PAGAR</p>
+            <p style="color: white; margin: 0; font-size: 48px; font-weight: 900;">{formatar_moeda(total)}</p>
+        </div>
+        """, unsafe_allow_html=True
+    )
 
     st.write("---")
-    st.subheader("📤 Finalizar Encomenda")
-    comprovante = st.file_uploader("Anexe o comprovante de pagamento (Obrigatório)", type=['png', 'jpg', 'jpeg', 'pdf'])
     
-    if st.button("✅ ENVIAR PEDIDO", use_container_width=True, type="primary"):
-        if comprovante is not None:
-            salvar_pedido_sheets(
-                st.session_state.usuario_logado['email'], 
-                st.session_state.usuario_logado['nome'], 
-                st.session_state.carrinho, 
-                formatar_moeda(total), 
-                "PIX" if "PIX" in metodo_pagamento else "Cartão",
-                comprovante
-            )
-            st.success("🎉 Pedido finalizado com sucesso!")
-            st.balloons()
+    if st.session_state.checkout_url is None:
+        if st.button("✅ GERAR LINK DE PAGAMENTO", use_container_width=True, type="primary"):
+            with st.spinner("Conectando com a InfinitePay..."):
+                link, nsu = gerar_link_infinitepay(
+                    st.session_state.carrinho, 
+                    total, 
+                    st.session_state.usuario_logado['nome'], 
+                    st.session_state.usuario_logado['email']
+                )
+                
+                if link and nsu:
+                    salvar_pedido_sheets(
+                        st.session_state.usuario_logado['email'], 
+                        st.session_state.usuario_logado['nome'], 
+                        st.session_state.carrinho, 
+                        formatar_moeda(total), 
+                        "InfinitePay",
+                        nsu
+                    )
+                    st.session_state.checkout_url = link
+                    st.success("🎉 Pedido registrado e link gerado com sucesso!")
+                    st.balloons()
+                    st.rerun()
+                else:
+                    st.error("⚠️ Ocorreu um erro ao gerar o link de pagamento. Tente novamente mais tarde.")
+    else:
+        st.success("Pedido registrado no sistema! Clique no botão abaixo para pagar com PIX ou Cartão.")
+        st.link_button("💳 CLIQUE AQUI PARA ACESSAR SEU CHECKOUT", st.session_state.checkout_url, type="primary", use_container_width=True)
+        st.info("Após realizar o pagamento na plataforma da InfinitePay, você pode fechar a janela. Nossa equipe atualizará seu status em breve na aba 'Meus Pedidos'.")
+        
+        if st.button("Fazer nova compra"):
             st.session_state.carrinho = []
-        else:
-            st.error("⚠️ Anexe o print do comprovante antes de clicar em Enviar Pedido.")
+            st.session_state.checkout_url = None
+            st.rerun()
 
 def page_pedidos():
     st.title("📦 Meus Pedidos")
     
-    # Lendo do Banco de Dados Google Sheets
     df = obter_dados_sheets()
     
     if not df.empty and 'Email' in df.columns:
@@ -308,10 +336,9 @@ def page_pedidos():
                     st.write(f"**Total Pago:** {row['Total_Pago']} ({row['Metodo_Pagamento']})")
                     st.write("---")
                     
-                    # Design Novo: Quebrando a string e mostrando a miniatura do produto
                     itens_comprados = str(row['Itens']).split(" | ")
                     for item in itens_comprados:
-                        nome_camisa = item.split(" (")[0] # Pega só a primeira parte do nome
+                        nome_camisa = item.split(" (")[0] 
                         col_foto, col_desc = st.columns([1, 5])
                         
                         with col_foto:
@@ -333,9 +360,6 @@ def page_pedidos():
     else:
         st.info("O banco de dados ainda está vazio.")
 
-# ==========================================
-# POP-UP DE EXCLUSÃO (st.dialog)
-# ==========================================
 @st.dialog("⚠️ Confirmar Exclusão")
 def modal_excluir_pedido(linha_planilha, cliente_nome):
     st.write(f"Tem certeza que deseja apagar permanentemente o pedido de **{cliente_nome}**?")
@@ -349,9 +373,6 @@ def modal_excluir_pedido(linha_planilha, cliente_nome):
     if col_nao.button("❌ Cancelar", use_container_width=True):
         st.rerun()
 
-# ==========================================
-# PÁGINA DO ADMINISTRADOR
-# ==========================================
 def page_admin():
     st.title("👑 Gestão CAECO - Painel Administrativo")
     st.write("Controle completo de vendas, relatórios e status.")
@@ -368,7 +389,8 @@ def page_admin():
             with st.expander(f"🛒 {row['Cliente']} - {row['Data']} (Atual: {row['Status']})"):
                 st.write(f"**E-mail:** {row['Email']}")
                 st.write(f"**Itens:** {row['Itens']}")
-                st.write(f"**Total Pago:** {row['Total_Pago']} via {row['Metodo_Pagamento']}")
+                st.write(f"**Total:** {row['Total_Pago']} via {row['Metodo_Pagamento']}")
+                st.write(f"**ID do Pedido (NSU):** `{row.get('Comprovante', 'Não registrado')}`") # A coluna Comprovante agora guarda o NSU
                 
                 st.divider()
                 linha_planilha = index + 2 
@@ -380,7 +402,6 @@ def page_admin():
                     key=f"status_{index}"
                 )
                 
-                # Botões lado a lado para Salvar ou Excluir
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
                     if st.button("💾 Salvar Novo Status", key=f"btn_{index}", type="primary", use_container_width=True):
@@ -394,13 +415,9 @@ def page_admin():
 
         st.divider()
         
-        # ---------------------------------------------------------
-        # NOVA SEÇÃO: ATUALIZAÇÃO E E-MAIL EM LOTE
-        # ---------------------------------------------------------
         st.subheader("🔄 Atualização e E-mail em Lote")
         st.write("Selecione vários pedidos para alterar o status simultaneamente e gerar um e-mail conjunto.")
         
-        # Cria uma lista legível para o multiselect
         opcoes_pedidos = []
         for index, row in df.iterrows():
             opcoes_pedidos.append(f"ID {index} - {row['Cliente']} ({row['Status']})")
@@ -415,7 +432,6 @@ def page_admin():
                 
                 with st.spinner("Atualizando banco de dados na nuvem..."):
                     for p in pedidos_selecionados:
-                        # Puxa o index da linha selecionada
                         idx_str = p.split(" - ")[0].replace("ID ", "")
                         idx_real = int(idx_str)
                         linha_planilha = idx_real + 2
@@ -428,12 +444,10 @@ def page_admin():
                 
                 st.success(f"✅ {len(pedidos_selecionados)} pedidos atualizados com sucesso!")
                 
-                # Gera o link direto para o GMAIL NA WEB em BCC (Cópia Oculta)
                 lista_emails_bcc = ",".join(emails_notificar)
                 assunto = urllib.parse.quote(f"Atualização do seu Pedido - {novo_status_lote}")
                 corpo = urllib.parse.quote(f"Olá!\n\nSeu pedido de camisas da CAECO teve o status atualizado para: {novo_status_lote}.\n\n{mensagens_status.get(novo_status_lote, '')}\n\nAtenciosamente,\nEquipe CAECO")
                 
-                # A MÁGICA AQUI: Usando o link oficial do Gmail em vez de mailto:
                 link_gmail = f"https://mail.google.com/mail/?view=cm&fs=1&to=caeconomiagv@gmail.com&bcc={lista_emails_bcc}&su={assunto}&body={corpo}"
                 
                 st.markdown(f"""
@@ -442,13 +456,11 @@ def page_admin():
                         <a href="{link_gmail}" target="_blank" style="background-color: #4285F4; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                             📧 Abrir Gmail para Avisar Clientes
                         </a>
-                        <p style="font-size: 13px; margin-top: 10px; color: gray;">Os e-mails serão enviados em <b>Cópia Oculta (BCC)</b> para garantir a privacidade de todos os alunos.</p>
                     </div>
                 """, unsafe_allow_html=True)
             else:
                 st.error("Selecione pelo menos um pedido na lista acima.")
 
-        # ---------------------------------------------------------
         st.divider()
         st.subheader("📊 Relatório para o Fornecedor")
         
@@ -507,6 +519,7 @@ else:
         if st.button("Sair da Conta"):
             st.session_state.usuario_logado = None
             st.session_state.carrinho = []
+            st.session_state.checkout_url = None
             st.rerun()
 
     paginas_app = [pg_loja, pg_carrinho, pg_pedidos]
