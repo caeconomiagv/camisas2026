@@ -35,49 +35,49 @@ def obter_dados_sheets():
         return pd.DataFrame()
 
 # NOVO: Função para gerar o link da InfinitePay via API
-def gerar_link_infinitepay(carrinho, total_com_desconto, nome_cliente, email_cliente):
+def gerar_link_infinitepay(carrinho, total_com_desconto, metodo_pagamento):
     handle = st.secrets["infinitepay"]["handle"]
-    # Cria um ID de pedido único para rastreio
     order_nsu = f"CAECO-{str(uuid.uuid4())[:8].upper()}"
     
-    # Prepara os itens no formato que a InfinitePay exige (valor em centavos)
     itens_payload = []
     
-    # Como a InfinitePay não aceita desconto no total, vamos aplicar o desconto proporcional 
-    # no preço de cada item apenas para o payload da API
-    fator_desconto = total_com_desconto / sum(item["Preço"] for item in carrinho)
+    # Se tem desconto (PIX), aplicamos a proporção nos itens. Se não, fator é 1.
+    total_original = sum(item["Preço"] for item in carrinho)
+    fator_desconto = (total_com_desconto / total_original) if total_original > 0 else 1
     
     for item in carrinho:
-        preco_centavos = int((item["Preço"] * fator_desconto) * 100)
+        # A InfinitePay exige o preço em centavos e número inteiro
+        preco_centavos = int(round((item["Preço"] * fator_desconto) * 100))
         itens_payload.append({
             "quantity": 1,
             "price": preco_centavos,
-            "description": f"{item['Camisa']} ({item['Modelo']}) - {item['Tamanho']}"
+            "description": f"{item['Camisa']} ({item['Modelo']}) - Tam:{item['Tamanho']}"
         })
         
     payload = {
         "handle": handle,
         "order_nsu": order_nsu,
-        "items": itens_payload,
-        "customer": {
-            "name": nome_cliente,
-            "email": email_cliente
-        }
+        "items": itens_payload
     }
     
     try:
         url = "https://api.checkout.infinitepay.io/links"
-        resposta = requests.post(url, json=payload)
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        resposta = requests.post(url, json=payload, headers=headers)
         
         if resposta.status_code in [200, 201]:
             dados = resposta.json()
-            # A API geralmente devolve o link de pagamento na chave 'url' ou equivalente
-            link_pagamento = dados.get("url") or dados.get("payment_url") or dados.get("metadata", {}).get("url")
-            return link_pagamento, order_nsu
+            link_pagamento = dados.get("url") or dados.get("payment_url")
+            return link_pagamento, order_nsu, None
         else:
-            return None, None
+            # Captura exatamente o motivo da InfinitePay recusar o link
+            erro_msg = f"Erro {resposta.status_code}: {resposta.text}"
+            return None, None, erro_msg
     except Exception as e:
-        return None, None
+        return None, None, str(e)
 
 precos_camisas = {
     "01 - Economia Padrão": 59.99,
@@ -106,7 +106,6 @@ if 'carrinho' not in st.session_state:
     st.session_state.carrinho = []
 if 'usuario_logado' not in st.session_state:
     st.session_state.usuario_logado = None
-# Guarda o link gerado para não sumir se a página recarregar
 if 'checkout_url' not in st.session_state:
     st.session_state.checkout_url = None
 
@@ -250,19 +249,28 @@ def page_carrinho():
     * A CAECO é responsável apenas pela criação do design e atua como intermediadora do processo com o fornecedor.
     """)
 
-    st.subheader("💳 Valores e Pagamento")
+    st.subheader("💳 Forma de Pagamento e Valores")
+    
+    # O BOTÃO VOLTOU AQUI!
+    metodo_pagamento = st.radio(
+        "Selecione como deseja pagar:", 
+        ["PIX (Com Descontos Progressivos)", "Cartão de Crédito (Sem Desconto)"],
+        horizontal=True
+    )
     
     quantidade = len(st.session_state.carrinho)
     subtotal = sum(item["Preço"] for item in st.session_state.carrinho)
     
-    # Lógica de Desconto baseada na promoção de quantidade
     desconto = 0.0
-    if quantidade == 2:
-        desconto = 0.05
-    elif quantidade == 3:
-        desconto = 0.075
-    elif quantidade >= 4:
-        desconto = 0.10
+    if "PIX" in metodo_pagamento:
+        if quantidade == 2:
+            desconto = 0.05
+        elif quantidade == 3:
+            desconto = 0.075
+        elif quantidade >= 4:
+            desconto = 0.10
+    else:
+        st.info("⚠️ Ao pagar com cartão, os descontos progressivos da promoção não são aplicados pela plataforma.")
 
     valor_desconto = subtotal * desconto
     total = subtotal - valor_desconto
@@ -271,7 +279,7 @@ def page_carrinho():
     colA.metric(label="Subtotal", value=formatar_moeda(subtotal))
     
     if desconto > 0:
-        colC.metric(label=f"Desconto ({desconto*100:g}%)", value=f"- {formatar_moeda(valor_desconto)}")
+        colC.metric(label=f"Desconto PIX ({desconto*100:g}%)", value=f"- {formatar_moeda(valor_desconto)}")
     else:
         colC.metric(label="Desconto", value="R$ 0,00")
 
@@ -289,11 +297,10 @@ def page_carrinho():
     if st.session_state.checkout_url is None:
         if st.button("✅ GERAR LINK DE PAGAMENTO", use_container_width=True, type="primary"):
             with st.spinner("Conectando com a InfinitePay..."):
-                link, nsu = gerar_link_infinitepay(
+                link, nsu, erro = gerar_link_infinitepay(
                     st.session_state.carrinho, 
                     total, 
-                    st.session_state.usuario_logado['nome'], 
-                    st.session_state.usuario_logado['email']
+                    metodo_pagamento
                 )
                 
                 if link and nsu:
@@ -302,7 +309,7 @@ def page_carrinho():
                         st.session_state.usuario_logado['nome'], 
                         st.session_state.carrinho, 
                         formatar_moeda(total), 
-                        "InfinitePay",
+                        "PIX" if "PIX" in metodo_pagamento else "Cartão",
                         nsu
                     )
                     st.session_state.checkout_url = link
@@ -310,11 +317,13 @@ def page_carrinho():
                     st.balloons()
                     st.rerun()
                 else:
-                    st.error("⚠️ Ocorreu um erro ao gerar o link de pagamento. Tente novamente mais tarde.")
+                    st.error("⚠️ Ocorreu um erro ao gerar o link na InfinitePay.")
+                    # AQUI MOSTRA O ERRO EXATO PARA NÓS
+                    st.code(erro) 
     else:
-        st.success("Pedido registrado no sistema! Clique no botão abaixo para pagar com PIX ou Cartão.")
+        st.success("Pedido registrado no sistema! Clique no botão abaixo para ir para o pagamento.")
         st.link_button("💳 CLIQUE AQUI PARA ACESSAR SEU CHECKOUT", st.session_state.checkout_url, type="primary", use_container_width=True)
-        st.info("Após realizar o pagamento na plataforma da InfinitePay, você pode fechar a janela. Nossa equipe atualizará seu status em breve na aba 'Meus Pedidos'.")
+        st.info("Após realizar o pagamento na plataforma, você pode fechar a janela. Nossa equipe atualizará seu status em breve.")
         
         if st.button("Fazer nova compra"):
             st.session_state.carrinho = []
@@ -390,7 +399,7 @@ def page_admin():
                 st.write(f"**E-mail:** {row['Email']}")
                 st.write(f"**Itens:** {row['Itens']}")
                 st.write(f"**Total:** {row['Total_Pago']} via {row['Metodo_Pagamento']}")
-                st.write(f"**ID do Pedido (NSU):** `{row.get('Comprovante', 'Não registrado')}`") # A coluna Comprovante agora guarda o NSU
+                st.write(f"**ID do Pedido (NSU):** `{row.get('Comprovante', 'Não registrado')}`") 
                 
                 st.divider()
                 linha_planilha = index + 2 
