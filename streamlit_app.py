@@ -34,7 +34,7 @@ def obter_dados_sheets():
     except Exception as e:
         return pd.DataFrame()
 
-# NOVO: Função para gerar o link da InfinitePay via API
+# Função para gerar o link da InfinitePay via API
 def gerar_link_infinitepay(carrinho, total_com_desconto):
     handle = st.secrets["infinitepay"]["handle"]
     order_nsu = f"CAECO-{str(uuid.uuid4())[:8].upper()}"
@@ -162,7 +162,7 @@ def page_loja():
     st.markdown("""
         <div style="background-color: #000000; color: #39ff14; padding: 10px; border-radius: 5px; margin-bottom: 20px;">
             <marquee behavior="scroll" direction="left" scrollamount="10" style="font-size: 22px; font-weight: bold; text-transform: uppercase;">
-                🚨 Promoção Especial: Leve 2 ou mais camisetas e ganhe até 10% de desconto! Aproveite! 🚨
+                🚨 Promoção de Lançamento: Até dia 07/09 toda a loja terá 10% de desconto ao aplicar o cupom: CAECO10! 🚨
             </marquee>
         </div>
     """, unsafe_allow_html=True)
@@ -253,14 +253,34 @@ def page_carrinho():
     quantidade = len(st.session_state.carrinho)
     subtotal = sum(item["Preço"] for item in st.session_state.carrinho)
     
-    # Lógica de Desconto Progressivo por quantidade
+    # Lógica de Desconto por Cupom baseada em Datas
+    cupom = st.text_input("Possui um cupom de desconto? Insira aqui:").strip().upper()
     desconto = 0.0
-    if quantidade == 2:
-        desconto = 0.05
-    elif quantidade == 3:
-        desconto = 0.075
-    elif quantidade >= 4:
-        desconto = 0.10
+    
+    data_atual = datetime.datetime.now().date()
+    data_limite_caeco10 = datetime.date(2026, 9, 7)
+    data_inicio_2oumais = datetime.date(2026, 9, 8)
+    
+    if cupom == "CAECO10":
+        if data_atual <= data_limite_caeco10:
+            desconto = 0.10
+            st.success("✅ Cupom CAECO10 aplicado com sucesso (10% de desconto)!")
+        else:
+            st.error("❌ O cupom CAECO10 expirou no dia 07/09/2026.")
+            
+    elif cupom == "2OUMAIS":
+        if data_atual >= data_inicio_2oumais:
+            if quantidade >= 2:
+                # 2.5% de desconto para cada unidade superior a 1
+                desconto = (quantidade - 1) * 0.025
+                st.success(f"✅ Cupom 2OUMAIS aplicado! Você ganhou {desconto*100:g}% de desconto progressivo.")
+            else:
+                st.warning("⚠️ O cupom 2OUMAIS é válido apenas para compras de 2 ou mais camisas.")
+        else:
+            st.error("❌ O cupom 2OUMAIS só será válido a partir do dia 08/09/2026.")
+            
+    elif cupom != "":
+        st.error("❌ Cupom inválido.")
 
     valor_desconto = subtotal * desconto
     total = subtotal - valor_desconto
