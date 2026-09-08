@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
+from zoneinfo import ZoneInfo # <- Adicionado para corrigir o fuso horário
 import urllib.parse
 import requests
 import base64
@@ -9,9 +10,12 @@ import gspread
 import uuid
 
 # ==========================================
-# CONFIGURAÇÃO INICIAL (DEVE SER A PRIMEIRA LINHA)
+# CONFIGURAÇÃO INICIAL E CONSTANTES
 # ==========================================
 st.set_page_config(page_title="Loja CAECO", page_icon="👕", layout="wide")
+
+# Configurando o fuso horário de Brasília para todo o sistema
+FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
 # ==========================================
 # FUNÇÕES AUXILIARES E DADOS BASE
@@ -110,7 +114,8 @@ if 'checkout_url' not in st.session_state:
 
 def salvar_pedido_sheets(email, nome, carrinho, total, pagamento, id_pedido):
     sheet = conectar_google_sheets()
-    data_hora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    # Usando fuso horário do Brasil para registrar a venda corretamente
+    data_hora = datetime.datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
     resumo_itens = " | ".join([f"{i['Camisa']} ({i['Modelo']}) - Tam:{i['Tamanho']}" for i in carrinho])
     
     sheet.append_row([
@@ -162,7 +167,7 @@ def page_loja():
     st.markdown("""
         <div style="background-color: #000000; color: #39ff14; padding: 10px; border-radius: 5px; margin-bottom: 20px;">
             <marquee behavior="scroll" direction="left" scrollamount="10" style="font-size: 22px; font-weight: bold; text-transform: uppercase;">
-                🚨 Promoção de Lançamento: Até dia 07/09 toda a loja terá 10% de desconto ao aplicar o cupom: CAECO10! 🚨
+                🚨 Promoção de Lançamento: Até dia 11/09 toda a loja terá 10% de desconto ao aplicar o cupom: CAECO10! 🚨
             </marquee>
         </div>
     """, unsafe_allow_html=True)
@@ -253,25 +258,26 @@ def page_carrinho():
     quantidade = len(st.session_state.carrinho)
     subtotal = sum(item["Preço"] for item in st.session_state.carrinho)
     
-    # Lógica de Desconto por Cupom baseada em Datas
     cupom = st.text_input("Possui um cupom de desconto? Insira aqui:").strip().upper()
     desconto = 0.0
     
-    data_atual = datetime.datetime.now().date()
-    data_limite_caeco10 = datetime.date(2026, 9, 7)
-    data_inicio_2oumais = datetime.date(2026, 9, 8)
+    # -------------------------------------------------------------
+    # NOVA LÓGICA DE DATAS COM FUSO HORÁRIO DO BRASIL
+    # -------------------------------------------------------------
+    agora_br = datetime.datetime.now(FUSO_BR)
+    data_limite_caeco10 = datetime.datetime(2026, 9, 11, 23, 59, 59, tzinfo=FUSO_BR)
+    data_inicio_2oumais = datetime.datetime(2026, 9, 8, 0, 0, 0, tzinfo=FUSO_BR)
     
     if cupom == "CAECO10":
-        if data_atual <= data_limite_caeco10:
+        if agora_br <= data_limite_caeco10:
             desconto = 0.10
             st.success("✅ Cupom CAECO10 aplicado com sucesso (10% de desconto)!")
         else:
-            st.error("❌ O cupom CAECO10 expirou no dia 07/09/2026.")
+            st.error("❌ O cupom CAECO10 expirou no dia 11/09/2026.")
             
     elif cupom == "2OUMAIS":
-        if data_atual >= data_inicio_2oumais:
+        if agora_br >= data_inicio_2oumais:
             if quantidade >= 2:
-                # 2.5% de desconto para cada unidade superior a 1
                 desconto = (quantidade - 1) * 0.025
                 st.success(f"✅ Cupom 2OUMAIS aplicado! Você ganhou {desconto*100:g}% de desconto progressivo.")
             else:
