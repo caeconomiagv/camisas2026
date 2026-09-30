@@ -193,31 +193,37 @@ def page_loja():
             
         tamanho_selecionado = st.selectbox("Tamanho", opcoes_tamanho)
         
+        # Nova lógica do Expander (Mostra apenas a tabela do estilo selecionado)
         with st.expander("📏 Ver Tabela de Medidas"):
-            st.markdown("""
-            **TRADICIONAL**
-            * P: 63 x 49 cm
-            * M: 67 x 54 cm
-            * G: 74 x 57 cm
-            * GG: 76 x 60 cm
-            * XG: 80 x 63 cm
-            * XGG: 84 x 64 cm
-            * XXGG: 87 x 66 cm
-            
-            **BABYLOOK**
-            * P: 55 x 39 cm
-            * M: 57 x 44 cm
-            * G: 62 x 48 cm
-            * GG: 64 x 51 cm
-            * XG: 67 x 53 cm
-            
-            **OVERSIZED**
-            * P: 70 x 57 cm
-            * M: 72 x 60 cm
-            * G: 76 x 65 cm
-            * GG: 80 x 66 cm
-            * XG: 85 x 69 cm
-            """)
+            if estilo_selecionado == "Tradicional":
+                st.markdown("""
+                **TRADICIONAL**
+                * P: 63 x 49 cm
+                * M: 67 x 54 cm
+                * G: 74 x 57 cm
+                * GG: 76 x 60 cm
+                * XG: 80 x 63 cm
+                * XGG: 84 x 64 cm
+                * XXGG: 87 x 66 cm
+                """)
+            elif estilo_selecionado == "Babylook":
+                st.markdown("""
+                **BABYLOOK**
+                * P: 55 x 39 cm
+                * M: 57 x 44 cm
+                * G: 62 x 48 cm
+                * GG: 64 x 51 cm
+                * XG: 67 x 53 cm
+                """)
+            elif estilo_selecionado == "Oversized":
+                st.markdown("""
+                **OVERSIZED**
+                * P: 70 x 57 cm
+                * M: 72 x 60 cm
+                * G: 76 x 65 cm
+                * GG: 80 x 66 cm
+                * XG: 85 x 69 cm
+                """)
         
         st.info("ℹ️ **Material:** 100% algodão penteado, gramatura ideal e zero transparência.")
         preco_atual = precos_camisas[produto_selecionado]
@@ -402,7 +408,7 @@ def page_pedidos():
     else:
         st.info("O banco de dados ainda está vazio.")
 
-@st.dialog("⚠️ Confirmar Exclusão")
+@st.dialog("⚠️️ Confirmar Exclusão")
 def modal_excluir_pedido(linha_planilha, cliente_nome):
     st.write(f"Tem certeza que deseja apagar permanentemente o pedido de **{cliente_nome}**?")
     st.write("Esta ação removerá a linha do Google Sheets e não poderá ser desfeita.")
@@ -527,7 +533,7 @@ def page_admin():
 # ==========================================
 # DECLARAÇÃO DE PÁGINAS GLOBAIS E NAVEGAÇÃO
 # ==========================================
-pg_loja = st.Page(page_loja, title="Loja de Camisetas", icon="🛍️", default=True)
+pg_loja = st.Page(page_loja, title="Loja de Camisetas", icon="🛍️️", default=True)
 pg_carrinho = st.Page(page_carrinho, title="Meu Carrinho", icon="🛒")
 pg_pedidos = st.Page(page_pedidos, title="Meus Pedidos", icon="📦")
 pg_admin = st.Page(page_admin, title="Gestão CAECO", icon="👑")
