@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
-from zoneinfo import ZoneInfo # <- Adicionado para corrigir o fuso horário
+from zoneinfo import ZoneInfo
 import urllib.parse
 import requests
 import base64
@@ -86,7 +86,8 @@ precos_camisas = {
     "01 - Economia Padrão": 59.99,
     "02 - Ceteris Paribus": 59.99,
     "03 - Economia Frente e Verso": 69.99,
-    "04 - Economia Oversized": 79.99
+    "04 - Economia Oversized": 79.99,
+    "05 - Camisa Polo Educação Financeira": 90.00
 }
 
 produtos = list(precos_camisas.keys())
@@ -95,7 +96,8 @@ imagens_camisas = {
     "01 - Economia Padrão": "Gemini_Generated_Image_sx64lasx64lasx64.png", 
     "02 - Ceteris Paribus": "Gemini_Generated_Image_udlc0wudlc0wudlc.png",    
     "03 - Economia Frente e Verso": "Gemini_Generated_Image_ap1b2jap1b2jap1b.png", 
-    "04 - Economia Oversized": "Gemini_Generated_Image_vxmh2evxmh2evxmh.png"     
+    "04 - Economia Oversized": "Gemini_Generated_Image_vxmh2evxmh2evxmh.png",
+    "05 - Camisa Polo Educação Financeira": "gola_polo.png"
 }
 
 mensagens_status = {
@@ -114,7 +116,6 @@ if 'checkout_url' not in st.session_state:
 
 def salvar_pedido_sheets(email, nome, carrinho, total, pagamento, id_pedido):
     sheet = conectar_google_sheets()
-    # Usando fuso horário do Brasil para registrar a venda corretamente
     data_hora = datetime.datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
     resumo_itens = " | ".join([f"{i['Camisa']} ({i['Modelo']}) - Tam:{i['Tamanho']}" for i in carrinho])
     
@@ -164,15 +165,7 @@ def verificar_login_google():
 # ==========================================
 
 def page_loja():
-    st.markdown("""
-        <div style="background-color: #000000; color: #39ff14; padding: 10px; border-radius: 5px; margin-bottom: 20px;">
-            <marquee behavior="scroll" direction="left" scrollamount="10" style="font-size: 22px; font-weight: bold; text-transform: uppercase;">
-                🚨 Promoção de Lançamento: Até dia 11/09 toda a loja terá 10% de desconto ao aplicar o cupom: CAECO10! 🚨
-            </marquee>
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.title("🛍️ Coleção CAECO 2026.3")
+    st.title("🛍️ Coleção CAECO")
     st.write("---")
     
     col_img, col_detalhes = st.columns([1.2, 1])
@@ -181,12 +174,50 @@ def page_loja():
         st.subheader("Monte sua camisa")
         produto_selecionado = st.selectbox("Modelo da Estampa", produtos)
         
+        # Controle dinâmico de Estilo (Corte)
         if produto_selecionado == "04 - Economia Oversized":
-            estilo_selecionado = st.selectbox("Corte", ["Oversized"], disabled=True)
+            opcoes_estilo = ["Oversized"]
+        elif produto_selecionado == "05 - Camisa Polo Educação Financeira":
+            opcoes_estilo = ["Tradicional"]
         else:
-            estilo_selecionado = st.selectbox("Corte", ["Normal", "Babylook"])
+            opcoes_estilo = ["Tradicional", "Babylook"]
             
-        tamanho_selecionado = st.selectbox("Tamanho", ["P", "M", "G", "GG"])
+        estilo_selecionado = st.selectbox("Corte", opcoes_estilo)
+        
+        # Controle dinâmico de Tamanhos com base no Estilo
+        if estilo_selecionado == "Tradicional":
+            opcoes_tamanho = ["P", "M", "G", "GG", "XG", "XGG", "XXGG"]
+        else:
+            # Para Babylook e Oversized, limitamos até XG
+            opcoes_tamanho = ["P", "M", "G", "GG", "XG"]
+            
+        tamanho_selecionado = st.selectbox("Tamanho", opcoes_tamanho)
+        
+        with st.expander("📏 Ver Tabela de Medidas"):
+            st.markdown("""
+            **TRADICIONAL**
+            * P: 63 x 49 cm
+            * M: 67 x 54 cm
+            * G: 74 x 57 cm
+            * GG: 76 x 60 cm
+            * XG: 80 x 63 cm
+            * XGG: 84 x 64 cm
+            * XXGG: 87 x 66 cm
+            
+            **BABYLOOK**
+            * P: 55 x 39 cm
+            * M: 57 x 44 cm
+            * G: 62 x 48 cm
+            * GG: 64 x 51 cm
+            * XG: 67 x 53 cm
+            
+            **OVERSIZED**
+            * P: 70 x 57 cm
+            * M: 72 x 60 cm
+            * G: 76 x 65 cm
+            * GG: 80 x 66 cm
+            * XG: 85 x 69 cm
+            """)
         
         st.info("ℹ️ **Material:** 100% algodão penteado, gramatura ideal e zero transparência.")
         preco_atual = precos_camisas[produto_selecionado]
@@ -261,29 +292,17 @@ def page_carrinho():
     cupom = st.text_input("Possui um cupom de desconto? Insira aqui:").strip().upper()
     desconto = 0.0
     
-    # -------------------------------------------------------------
-    # NOVA LÓGICA DE DATAS COM FUSO HORÁRIO DO BRASIL
-    # -------------------------------------------------------------
-    agora_br = datetime.datetime.now(FUSO_BR)
-    data_limite_caeco10 = datetime.datetime(2026, 9, 11, 23, 59, 59, tzinfo=FUSO_BR)
-    data_inicio_2oumais = datetime.datetime(2026, 9, 8, 0, 0, 0, tzinfo=FUSO_BR)
-    
-    if cupom == "CAECO10":
-        if agora_br <= data_limite_caeco10:
-            desconto = 0.10
-            st.success("✅ Cupom CAECO10 aplicado com sucesso (10% de desconto)!")
-        else:
-            st.error("❌ O cupom CAECO10 expirou no dia 11/09/2026.")
+    # Lógica de cupons permanentes (não cumulativos)
+    if cupom == "DIA5":
+        desconto = 0.05
+        st.success("✅ Cupom DIA5 aplicado com sucesso (5% de desconto)!")
             
     elif cupom == "2OUMAIS":
-        if agora_br >= data_inicio_2oumais:
-            if quantidade >= 2:
-                desconto = (quantidade - 1) * 0.025
-                st.success(f"✅ Cupom 2OUMAIS aplicado! Você ganhou {desconto*100:g}% de desconto progressivo.")
-            else:
-                st.warning("⚠️ O cupom 2OUMAIS é válido apenas para compras de 2 ou mais camisas.")
+        if quantidade >= 2:
+            desconto = 0.10
+            st.success("✅ Cupom 2OUMAIS aplicado! (10% de desconto)")
         else:
-            st.error("❌ O cupom 2OUMAIS só será válido a partir do dia 08/09/2026.")
+            st.warning("⚠️ O cupom 2OUMAIS é válido apenas para compras de 2 ou mais camisas.")
             
     elif cupom != "":
         st.error("❌ Cupom inválido.")
