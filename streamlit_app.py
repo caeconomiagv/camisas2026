@@ -296,31 +296,75 @@ def page_carrinho():
     subtotal = sum(item["Preço"] for item in st.session_state.carrinho)
     
     cupom = st.text_input("Possui um cupom de desconto? Insira aqui:").strip().upper()
-    desconto = 0.0
     
-    # Lógica de cupons permanentes (não cumulativos)
+    # Variáveis de cálculo
+    total = subtotal
+    valor_desconto = 0.0
+    desconto_percentual = 0.0
+    
+    # Lógica de cupons permanentes (não cumulativos) e específicos
     if cupom == "DIA5":
-        desconto = 0.05
+        desconto_percentual = 0.05
+        valor_desconto = subtotal * desconto_percentual
+        total = subtotal - valor_desconto
         st.success("✅ Cupom DIA5 aplicado com sucesso (5% de desconto)!")
             
     elif cupom == "2OUMAIS":
         if quantidade >= 2:
-            desconto = 0.10
+            desconto_percentual = 0.10
+            valor_desconto = subtotal * desconto_percentual
+            total = subtotal - valor_desconto
             st.success("✅ Cupom 2OUMAIS aplicado! (10% de desconto)")
         else:
             st.warning("⚠️ O cupom 2OUMAIS é válido apenas para compras de 2 ou mais camisas.")
             
+    elif cupom == "CAECO":
+        novo_total = 0
+        teve_desconto = False
+        for item in st.session_state.carrinho:
+            if item["Camisa"] in ["01 - Economia Padrão", "02 - Ceteris Paribus", "03 - Economia Frente e Verso"]:
+                novo_total += 43.00
+                teve_desconto = True
+            elif item["Camisa"] == "04 - Economia Oversized":
+                novo_total += 53.00
+                teve_desconto = True
+            else:
+                novo_total += item["Preço"]
+                
+        if teve_desconto:
+            st.success("✅ Cupom CAECO aplicado! Preço de custo ativado para modelos base e oversized.")
+            valor_desconto = subtotal - novo_total
+            total = novo_total
+            desconto_percentual = valor_desconto / subtotal if subtotal > 0 else 0
+        else:
+            st.warning("⚠️ O cupom CAECO não se aplica aos itens do seu carrinho (ex: Polo).")
+            
+    elif cupom == "EXTENSAO":
+        novo_total = 0
+        teve_desconto = False
+        for item in st.session_state.carrinho:
+            if item["Camisa"] == "05 - Camisa Polo Educação Financeira":
+                novo_total += 66.00
+                teve_desconto = True
+            else:
+                novo_total += item["Preço"]
+                
+        if teve_desconto:
+            st.success("✅ Cupom EXTENSAO aplicado! Preço de custo ativado para a Camisa Polo.")
+            valor_desconto = subtotal - novo_total
+            total = novo_total
+            desconto_percentual = valor_desconto / subtotal if subtotal > 0 else 0
+        else:
+            st.warning("⚠️ O cupom EXTENSAO é válido apenas para a Camisa Polo.")
+
     elif cupom != "":
         st.error("❌ Cupom inválido.")
-
-    valor_desconto = subtotal * desconto
-    total = subtotal - valor_desconto
 
     colA, colB, colC = st.columns(3)
     colA.metric(label="Subtotal", value=formatar_moeda(subtotal))
     
-    if desconto > 0:
-        colC.metric(label=f"Desconto ({desconto*100:g}%)", value=f"- {formatar_moeda(valor_desconto)}")
+    if valor_desconto > 0:
+        colC.metric(label=f"Desconto ({desconto_percentual*100:.1f}%)", value=f"- {formatar_moeda(valor_desconto)}")
     else:
         colC.metric(label="Desconto", value="R$ 0,00")
 
@@ -408,7 +452,7 @@ def page_pedidos():
     else:
         st.info("O banco de dados ainda está vazio.")
 
-@st.dialog("⚠️️ Confirmar Exclusão")
+@st.dialog("⚠ Confirmar Exclusão")
 def modal_excluir_pedido(linha_planilha, cliente_nome):
     st.write(f"Tem certeza que deseja apagar permanentemente o pedido de **{cliente_nome}**?")
     st.write("Esta ação removerá a linha do Google Sheets e não poderá ser desfeita.")
@@ -533,7 +577,7 @@ def page_admin():
 # ==========================================
 # DECLARAÇÃO DE PÁGINAS GLOBAIS E NAVEGAÇÃO
 # ==========================================
-pg_loja = st.Page(page_loja, title="Loja de Camisetas", icon="🛍️️", default=True)
+pg_loja = st.Page(page_loja, title="Loja de Camisetas", icon="🛍", default=True)
 pg_carrinho = st.Page(page_carrinho, title="Meu Carrinho", icon="🛒")
 pg_pedidos = st.Page(page_pedidos, title="Meus Pedidos", icon="📦")
 pg_admin = st.Page(page_admin, title="Gestão CAECO", icon="👑")
